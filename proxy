@@ -1,0 +1,293 @@
+#!/usr/bin/escript
+
+-record(ip_port, {
+	ip,
+	port
+}).
+
+main(Args) when Args == ["help"] orelse Args == ["-help"] orelse Args == ["--help"] orelse Args == ["-h"] orelse Args == ["--h"] orelse Args == ["/?"] ->
+	io:format("usage:
+        1: ./proxy -listen-left 13306 -listen-right 23306
+        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306
+        3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306
+    ");
+
+% 这种模式的处理方案: 收到left socket连接后, 去连接right socket; 而后互相转发它俩; 传统正向代理
+% ./proxy -listen-left 13306 -connect-right 127.0.0.1:3306
+main(["-listen-left", LeftPort, "-connect-right", RightIpPort]) ->
+    try
+        %spawn(fun() -> observer:start() end),
+        do_listen_left_then_connect_right(parse_int(LeftPort), make_ip_port_record(RightIpPort))
+    catch
+        throw:Err ->
+            io:format("Error: ~p~n", [Err]);
+        exit:Err ->
+            io:format("Error: ~p~n", [Err]);
+        error:Err ->
+            case Err of
+                {badmatch, {error, eaddrinuse}} ->
+                    io:format("Error! Address in use: tcp://127.0.0.1:~p~n", [LeftPort]);
+                _ ->
+                    io:format("Error: ~p~n", [Err])
+            end
+    end;
+
+% 这种模式的处理方案: 先连接right socket, 连上后, 等待right socket发来信号, 才去连left socket; 而后互相转发它俩; 实现反向代理的内网发起端
+main(["-connect-left", LeftIpPort, "-connect-right", RightIpPort]) ->
+    try
+        do_connect_right_then_wait_then_connect_left(split_ip_and_port(LeftIpPort), make_ip_port_map(RightIpPort))
+    catch
+        throw:Err ->
+            io:format("Error: ~p~n", [Err]);
+        exit:Err ->
+            io:format("Error: ~p~n", [Err]);
+        error:Err ->
+            io:format("Error: ~p~n", [Err])
+    end;
+
+% 这种模式的处理方案: right socket 要先被连上, 然后 left socket 再被客户端连接, 然后互相转发它俩;
+% ./proxy -listen-left 2222 -listen-right 2223
+main(["-listen-left", LeftPort, "-listen-right", RightPort]) ->
+    try
+        {ok, LeftListenSock} = tcp_listen(parse_int(LeftPort)),
+        {ok, RightListenSock} = tcp_listen(parse_int(RightPort)),
+        io:format("Success! Start proxy listen tcp://127.0.0.1:~p and listen tcp://127.0.0.1:~p~n", [LeftPort, RightPort]),
+        wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+    catch
+        throw:Err ->
+            io:format("Error: ~p~n", [Err]);
+        exit:Err ->
+            io:format("Error: ~p~n", [Err]);
+        error:Err ->
+            case Err of
+                {badmatch, {error, eaddrinuse}} ->
+                    io:format("Error! Address in use: tcp://127.0.0.1:~p~n", [LeftPort]),
+                    io:format("Error! Address in use: tcp://127.0.0.1:~p~n", [RightPort]);
+                _ ->
+                    io:format("Error: ~p~n", [Err])
+            end
+    end;
+
+main(_) ->
+	io:format("param error~n").
+
+do_listen_left_then_connect_right(LeftPort, RightIpPortRcd) ->
+    {ok, LeftListenSock} = tcp_listen(LeftPort),
+    io:format("Success! Start proxy tcp://127.0.0.1:~p to tcp://~s:~p~n", [LeftPort, RightIpPortRcd#ip_port.ip, RightIpPortRcd#ip_port.port]),
+    wait_a_new_left_socket(LeftListenSock, RightIpPortRcd#ip_port.ip, RightIpPortRcd#ip_port.port).
+
+% do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], #{ip := RightIp, port := RightPort} = RightIpPortMap) ->
+do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap) ->
+    RightIp = maps:get(ip, RightIpPortMap),
+    RightPort = maps:get(port, RightIpPortMap),
+    case tcp_connect(RightIp, RightPort) of
+        {ok, RightSocket} ->
+            io:format("Success! Proxy connected on a new right socket: ~p~n", [RightSocket]),
+            wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap);
+        {error, can_not_connect} ->
+            io:format("Error! Can not connect right socket: tcp://~s:~p~n", [RightIp, RightPort]),
+            timer:sleep(1000),
+            do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
+    end.
+
+wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap) ->
+    receive
+        {tcp, RightSocket, <<1:8>>} -> % 收到 1byte 1, 则链接左边
+            io:format("got <<1:8>> ~p~n", [RightSocket]),
+            case tcp_connect(LeftIp, LeftPort) of
+                {ok, LeftSocket} ->
+                    io:format("Success! Proxy connected on a new left socket: ~p~n", [LeftSocket]),
+                    gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始转发数据
+                    bind_left_and_right(LeftSocket, RightSocket),
+                    do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap);
+                {error, can_not_connect} ->
+                    io:format("Error! Can not connect left socket: tcp://~s:~p~n", [LeftIp, LeftPort]),
+                    gen_tcp:send(RightSocket, <<0:8>>), % 发送 1byte 0, 通知那头无法连接
+                    wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap)
+            end;
+        {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 心跳而已, 要不要回?
+            %io:format("got <<0:8>> ~p~n", [RightSocket]),
+            gen_tcp:send(RightSocket, <<0:8>>), % 发送 1byte 0, 回一下心跳
+            wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap);
+        {tcp, RightSocket, Bin} ->
+            io:format("Error! Right socket is not our proxy, ~p got message: ~p~n", [RightSocket, Bin]),
+            gen_tcp:close(RightSocket),
+            timer:sleep(3000),
+            do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap);
+        {tcp_closed, RightSocket} ->
+            io:format("Info! Right socket disconnected: ~p~n", [RightSocket]),
+            gen_tcp:close(RightSocket),
+            %timer:sleep(3000),
+            do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
+    after 60000 -> % 每60秒无响应则断开重连
+        io:format("Info! Close right socket after 60 seconds: ~p~n", [RightSocket]),
+        gen_tcp:close(RightSocket),
+        do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
+    end.
+    
+wait_a_new_left_socket(LeftListenSock, RightIp, RightPort) ->
+    {ok, LeftSocket} = wait_until_socket_connected(LeftListenSock),
+    {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
+    io:format("Success! A new left socket connected: ~p ~p:~p~n", [LeftSocket, LeftClientIp, LeftClientPort]),
+    case tcp_connect(RightIp, RightPort) of
+        {ok, RightSocket} ->
+            io:format("Success! A new right socket connected: ~p~n", [RightSocket]),
+            bind_left_and_right(LeftSocket, RightSocket);
+        {error, can_not_connect} ->
+            io:format("Error! Can not connect right socket: tcp://~s:~p~n", [RightIp, RightPort]),
+            io:format("Info! Close left socket: ~p~n", [LeftSocket]),
+            gen_tcp:close(LeftSocket)
+    end,
+    wait_a_new_left_socket(LeftListenSock, RightIp, RightPort).
+
+wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock) ->
+    case wait_until_socket_connected(RightListenSock) of
+        {ok, RightSocket} ->
+            case inet:peername(RightSocket) of
+                {ok, {RightClientIp, RightClientPort}} ->
+                    io:format("Success! A new right socket connected: ~p ~p:~p~n", [RightSocket, RightClientIp, RightClientPort]),
+                    wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
+                {error, Reason} ->
+                    io:format("Opps! A right socket leaved! {error, ~p}~n", [Reason]),
+                    wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+            end;
+        O ->
+            io:format("Opps! A right socket leaved! ~p~n", [O]),
+            wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+    end.
+
+wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
+    case wait_until_socket_connected(LeftListenSock, 5000) of
+        {error, timeout} ->
+            gen_tcp:send(RightSocket, <<0:8>>), % 发送 1byte 0, 心跳那头
+            receive
+                {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 心跳的回复
+                    wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
+                {tcp_closed, RightSocket} ->
+                    io:format("Error! Right socket closed! ~p ~n", [RightSocket]),
+                    gen_tcp:close(RightSocket),
+                    c:flush(),
+                    wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+            after 3000 ->
+                io:format("Error! Right socket not response! ~p ~n", [RightSocket]),
+                gen_tcp:close(RightSocket),
+                c:flush(),
+                wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+            end;
+        {ok, LeftSocket} ->
+            {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
+            io:format("Success! A new left socket connected: ~p ~p:~p~n", [LeftSocket, LeftClientIp, LeftClientPort]),
+            gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始连left
+            receive
+                {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 那头无法连接左边, 我也断开左边
+                    % io:format("got <<0:8>> ~p~n", [RightSocket]),
+                    gen_tcp:close(LeftSocket),
+                    wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
+                {tcp, RightSocket, <<1:8>>} -> % 收到 1byte 1, 可以开始转发数据
+                    bind_left_and_right(LeftSocket, RightSocket),
+                    c:flush(),
+                    wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+            after 5000 ->
+                io:format("Error! Right socket not response! ~p ~n", [RightSocket]),
+                gen_tcp:close(LeftSocket),
+                gen_tcp:close(RightSocket),
+                c:flush(),
+                wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+            end
+    end.
+
+bind_left_and_right(LeftSocket, RightSocket) ->
+    Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket) end),
+    gen_tcp:controlling_process(LeftSocket, Pid),
+    gen_tcp:controlling_process(RightSocket, Pid),
+    io:format("Success! proxy ~p <-> ~p ~n", [LeftSocket, RightSocket]).
+
+loop(LeftSocket, RightSocket) ->
+    receive
+        {tcp, LeftSocket, Bin} ->
+            io:format("~p ----------> ~p bytes~n", [LeftSocket, size(Bin)]),
+            %gen_tcp:send(LeftSocket, <<"yoyo~", Bin/big-binary>>),
+            case gen_tcp:send(RightSocket, Bin) of
+                ok ->
+                    loop(LeftSocket, RightSocket);
+                {error, Reason} ->
+                    io:format("                                     {error, ~p} <---------- ~p~n", [Reason, RightSocket]),
+                    gen_tcp:close(LeftSocket)
+            end;
+        {tcp, RightSocket, Bin} ->
+            io:format("                                     ~p bytes <---------- ~p~n", [size(Bin), RightSocket]),
+            case gen_tcp:send(LeftSocket, Bin) of
+                ok ->
+                    loop(LeftSocket, RightSocket);
+                {error, Reason} ->
+                    io:format("~p ----------> {error, ~p}~n", [LeftSocket, Reason]),
+                    gen_tcp:close(RightSocket)
+            end;
+        {tcp_closed, LeftSocket} ->
+            io:format("~p ----------> disconnect ----------> ~p~n", [LeftSocket, RightSocket]),
+            gen_tcp:close(RightSocket);
+        {tcp_closed, RightSocket} ->
+            io:format("~p <---------- disconnect <---------- ~p~n", [LeftSocket, RightSocket]),
+            gen_tcp:close(LeftSocket)
+    end.
+
+split_ip_and_port(IpPort) -> % 127.0.0.1:3306
+    [
+        string:substr(IpPort, 1, string:rstr(IpPort, ":") - 1), % 127.0.0.1
+        parse_int(string:substr(IpPort, string:rstr(IpPort, ":") + 1)) % 3306
+    ].
+
+make_ip_port_record(IpPort) -> % 127.0.0.1:3306
+    #ip_port{
+        ip = string:substr(IpPort, 1, string:rstr(IpPort, ":") - 1), % 127.0.0.1
+        port = parse_int(string:substr(IpPort, string:rstr(IpPort, ":") + 1)) % 3306
+    }.
+
+make_ip_port_map(IpPort) -> % 127.0.0.1:3306
+    #{
+        ip => string:substr(IpPort, 1, string:rstr(IpPort, ":") - 1), % 127.0.0.1
+        port => parse_int(string:substr(IpPort, string:rstr(IpPort, ":") + 1)) % 3306
+    }.
+    
+parse_int(String) ->
+    erlang:list_to_integer(String).
+    
+wait_until_socket_connected(Listen) ->
+    gen_tcp:accept(Listen).
+    
+wait_until_socket_connected(Listen, Timeout) ->
+    gen_tcp:accept(Listen, Timeout).
+
+tcp_listen(Port) ->
+    gen_tcp:listen(Port, [binary, {packet, 0}, {reuseaddr, true}, {active, true}]).
+    
+tcp_connect(Ip, Port) ->
+    tcp_connect(Ip, Port, 1).
+
+tcp_connect(_, _, Count) when Count > 2 ->
+    {error, can_not_connect};
+tcp_connect(Ip, Port, Count) ->
+    case gen_tcp:connect(Ip, Port, [binary, {packet, 0}]) of
+        {ok, Socket} ->
+            {ok, Socket};
+        _ ->
+            timer:sleep(1000),
+            tcp_connect(Ip, Port, Count + 1)
+    end.
+
+
+% ssh -f -N -T -R 2222:localhost:22 sourceuser@138.47.99.99
+
+    %-f: tells the SSH to background itself after it authenticates, saving you time by not having to run something on the remote server for the tunnel to remain alive.
+    
+    %-N: if all you need is to create a tunnel without running any remote commands then include this option to save resources.
+    
+    %-T: useful to disable pseudo-tty allocation, which is fitting if you are not trying to create an interactive shell.
+    
+    %autossh utility,
+
+% ssh localhost -p 2222
+
+
+
+
