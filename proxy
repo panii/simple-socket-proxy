@@ -1,5 +1,26 @@
 #!/usr/bin/escript
 
+%    +------------------------[ Company Network ]-------------------------+
+%    |                                                                    |
+%    |   <proxy -connect-left 127.0.0.1:22 -connect-right x.x.x.x:2222>   | <-------------------+
+%    |                                |                                   |                     |
+%    |                                |                                   |                     |
+%    |           +------------+       |                                   |                     |
+%    |           | ssh server | <-----+                                   |                     |
+%    |           +------------+                                           |                     |
+%    |                                                                    |                     |
+%    +------------------------[ Company Network ]-------------------------+                     |
+%                                                                                               |
+%                                                                                               |
+%                                                                                               |
+%   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+       |
+%   |                            |      |                                               |       |
+%   |                            |      |                                               |       |
+%   | <ssh root@x.x.x.x -p 1222> | ---> | <proxy -listen-left 1222 -listen-right 2222>  | <-----+
+%   |                            |      |                                               |
+%   |                            |      |                                               |
+%   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+
+
 -record(ip_port, {
 	ip,
 	port
@@ -175,24 +196,31 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
                 wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
             end;
         {ok, LeftSocket} ->
-            {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
-            io:format("Success! A new left socket connected: ~p ~p:~p~n", [LeftSocket, LeftClientIp, LeftClientPort]),
-            gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始连left
-            receive
-                {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 那头无法连接左边, 我也断开左边
-                    % io:format("got <<0:8>> ~p~n", [RightSocket]),
-                    gen_tcp:close(LeftSocket),
-                    wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
-                {tcp, RightSocket, <<1:8>>} -> % 收到 1byte 1, 可以开始转发数据
-                    bind_left_and_right(LeftSocket, RightSocket),
+            case inet:peername(LeftSocket) of
+                {ok, {LeftClientIp, LeftClientPort}} ->
+                    io:format("Success! A new left socket connected: ~p ~p:~p~n", [LeftSocket, LeftClientIp, LeftClientPort]),
+                    gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始连left
+                    receive
+                        {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 那头无法连接左边, 我也断开左边
+                            % io:format("got <<0:8>> ~p~n", [RightSocket]),
+                            gen_tcp:close(LeftSocket),
+                            wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
+                        {tcp, RightSocket, <<1:8>>} -> % 收到 1byte 1, 可以开始转发数据
+                            bind_left_and_right(LeftSocket, RightSocket),
+                            c:flush(),
+                            wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+                    after 5000 ->
+                        io:format("Error! Right socket not response! ~p ~n", [RightSocket]),
+                        gen_tcp:close(LeftSocket),
+                        gen_tcp:close(RightSocket),
+                        c:flush(),
+                        wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
+                    end;
+                {error, Reason} ->
+                    io:format("Opps! A left socket leaved! {error, ~p}~n", [Reason]),
+                    gen_tcp:close(RightSocket),
                     c:flush(),
                     wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
-            after 5000 ->
-                io:format("Error! Right socket not response! ~p ~n", [RightSocket]),
-                gen_tcp:close(LeftSocket),
-                gen_tcp:close(RightSocket),
-                c:flush(),
-                wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
             end
     end.
 
