@@ -1,5 +1,17 @@
 #!/usr/bin/escript
 
+% 不讲逻辑, 不讲类库, 说一些有意思的东东
+% 一. 标点符号                  逗号, 句号, 分号 bind_left_and_right(LeftSocket, RightSocket) ->
+% 二. 结构体                    record vs maps
+% 三. 模式匹配                  省去if
+% 四. 无限递归                  堆栈做了特殊优化 不需要引用计数 GC wait_right_socket_initial_signal for(
+% 五. 并发编程                  抢占式 同步IO receive
+% 六. 原生集群                  <table>
+% 七. 运行时                    app 监控observer:start() table(kv order list) process supervisior beam(erlang, elixir(https://elixir-lang.org/  https://github.com/panii/PHP-Elixir/blob/master/lib/php.ex))
+
+
+
+
 %    +------------------------[ Company Network ]-------------------------+
 %    |                                                                    |
 %    |   <proxy -connect-left 127.0.0.1:22 -connect-right x.x.x.x:2222>   | <-------------------+
@@ -21,6 +33,7 @@
 %   |                            |      |                                               |
 %   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+
 
+% #ip_port{
 -record(ip_port, {
 	ip,
 	port
@@ -29,7 +42,7 @@
 main(Args) when Args == ["help"] orelse Args == ["-help"] orelse Args == ["--help"] orelse Args == ["-h"] orelse Args == ["--h"] orelse Args == ["/?"] ->
 	io:format("usage:
         1: ./proxy -listen-left 13306 -listen-right 23306
-        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306
+        2: ./proxy -connect-left 127.0.0.1:33306 -connect-right 127.0.0.1:23306
         3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306
     ");
 
@@ -145,7 +158,7 @@ wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap
         gen_tcp:close(RightSocket),
         do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
     end.
-    
+
 wait_a_new_left_socket(LeftListenSock, RightIp, RightPort) ->
     {ok, LeftSocket} = wait_until_socket_connected(LeftListenSock),
     {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
@@ -276,19 +289,19 @@ make_ip_port_map(IpPort) -> % 127.0.0.1:3306
         ip => string:substr(IpPort, 1, string:rstr(IpPort, ":") - 1), % 127.0.0.1
         port => parse_int(string:substr(IpPort, string:rstr(IpPort, ":") + 1)) % 3306
     }.
-    
+
 parse_int(String) ->
     erlang:list_to_integer(String).
-    
+
 wait_until_socket_connected(Listen) ->
     gen_tcp:accept(Listen).
-    
+
 wait_until_socket_connected(Listen, Timeout) ->
     gen_tcp:accept(Listen, Timeout).
 
 tcp_listen(Port) ->
     gen_tcp:listen(Port, [binary, {packet, 0}, {reuseaddr, true}, {active, true}]).
-    
+
 tcp_connect(Ip, Port) ->
     tcp_connect(Ip, Port, 1).
 
@@ -303,15 +316,14 @@ tcp_connect(Ip, Port, Count) ->
             tcp_connect(Ip, Port, Count + 1)
     end.
 
-
 % ssh -f -N -T -R 2222:localhost:22 sourceuser@138.47.99.99
 
     %-f: tells the SSH to background itself after it authenticates, saving you time by not having to run something on the remote server for the tunnel to remain alive.
-    
+
     %-N: if all you need is to create a tunnel without running any remote commands then include this option to save resources.
-    
+
     %-T: useful to disable pseudo-tty allocation, which is fitting if you are not trying to create an interactive shell.
-    
+
     %autossh utility,
 
 % ssh localhost -p 2222
@@ -319,3 +331,121 @@ tcp_connect(Ip, Port, Count) ->
 
 
 
+
+
+
+
+
+
+
+
+% arr = [1, 2, 3];
+% int sum = 0;
+% for(i = 0; i < len; i++) {
+%   sum += arr[i];
+% }
+
+
+% sum(0, [1, 2, 3]);
+% int sum(Sum, Arr) {
+%   sum(Sum + Arr[0], Arr[1:]);
+% }
+% int sum(Sum, []) {
+%   return Sum;
+% }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+%                                      <table>
+%   +----------[ Server1 ]------------+       +----------[ Server2 ]------------+
+%   |                        <socket> | <---> | <socket>                        |
+%   |                                 |       |                                 |
+%   | <if player2 on local>           |       | <if player2 on local>           |
+%   |    <send to local player2 sock> |       |    <send to local player2 sock> |
+%   | <if player2 on server2>         |       | <else>                          |
+%   |    <send to socket, id:player2> |       |    <error>                      |
+%   |                                 |       |                                 |
+%   | <sock1>                         |       | <sock2>                         |
+%   +----------[ Server1 ]------------+       +----------[ Server2 ]------------+
+%         ^                                         ^
+%         |                                         |
+%         V                                         V
+%      player1                                   player2
+
+
+
+
+%   +----------[ Server1 ]------------+       +----------[ Server2 ]------------+
+%   | <gproc>                  <epmd> | <---> | <epmd>                  <gproc> |
+%   |                                 |       |                                 |
+%   | <send to player2 sock>          |       | <send to player1 sock>          |
+%   |                                 |       |                                 |
+%   | <player1>                       |       | <player2>                       |
+%   +----------[ Server1 ]------------+       +----------[ Server2 ]------------+
+%         |                                         |
+%         |                                         |
+%         V                                         V
+%      Client1                                   Client2
+
+
+
+
+
+
+
+
+
+
+% https://github.com/syyongx/php2go 900star
+
+% ArrayMerge array_merge()
+% func ArrayMerge(ss ...[]interface{}) []interface{} {
+%	n := 0
+%	for _, v := range ss {
+%		n += len(v)
+%	}
+%	s := make([]interface{}, 0, n)
+%	for _, v := range ss {
+%		s = append(s, v...)
+%	}
+%	return s
+% }
+
+
+
+
+
+
+
+
+
+
+
+
+
+% 简单的总结促成我们现在选择 Erlang 的具体原因：
+% OTP 的容错能力。Supervisor, Worker 的架构，Go 目前没有。
+% Erlang 的 process 有独立状态。有没有独立状态本身无所谓好与不好，只是我们大部分场景需要每个 process 维护一个状态。
+% Erlang 的 process 有独立身份。对于我们这个需要长时间不间断运行的系统，可以随时探测某一个 process 的运行情况很重要，Erlang 可以很方便通过 Pid，registered name 跟具体 process 通信。
+% Erlang process 有独立 GC。Go/Java 的全局 GC 在系统压力巨大时，都会造成抖动，在我们的场景可能会造成很多请求超时。Erlang 每一个 process 有独立 的 GC，一个 process 发生 GC 时不会造成其他 process 挂起。
+% Erlang/OTP 的网络能力。我们很方便通过 process pool 把海量任务动态分配给不同服务器处理。Go 在这方面完全没有涉及。
+% 当然 Erlang 是动态语言，它在执行效率、内存用量上对比 Go 有明显劣势。对于大型系统，编写代码时，动态类型也带来诸多不便。
+
+% 总体来说，Go 目前除了有 goroutine 解决同时处理大量任务的问题，在一个高可用、大并发、软实时、基于集群的实际产品里需要面临的诸多问题，不像 Erlang 那样试图去解决。
+
+% 感觉 Go 更多还是定位为一个类似 C++ 的通用语言，而 Erlang 是专为编写大并发的通讯系统设计的。
+% ————————————————
+% 原文链接：https://blog.csdn.net/u011321908/java/article/details/45418313
