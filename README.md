@@ -1,5 +1,12 @@
 # simple-socket-proxy
-A fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
+
+运行环境: erlang 18以上  
+转发各类tcp消息，如mysql、redis、window远程链接、ssh等  
+使用方式一，正向转发  
+命令 ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306 可以实现33306到3306的端口转发  
+  
+使用方式二，反向转发。先由内网连公网开启一个守护链接，从而通过公网连通内网部署的服务  
+命令如下图:
 ```
 %    +------------------------[ Company Network ]-------------------------+  
 %    |                                                                    |  
