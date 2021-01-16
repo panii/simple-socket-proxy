@@ -41,15 +41,15 @@ main(["-listen-left", LeftPort, "-connect-right", RightIpPort]) ->
         do_listen_left_then_connect_right(parse_int(LeftPort), make_ip_port_record(RightIpPort))
     catch
         throw:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         exit:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         error:Err ->
             case Err of
                 {badmatch, {error, eaddrinuse}} ->
-                    io:format("t:~p Error! Address in use: tcp://127.0.0.1:~p~n", [erlang:system_time(millisecond), LeftPort]);
+                    io:format("~s Error! Address in use: tcp://127.0.0.1:~s~n", [get_yymmddhhmmssmm_str(), LeftPort]);
                 _ ->
-                    io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err])
+                    io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err])
             end
     end;
 
@@ -59,11 +59,11 @@ main(["-connect-left", LeftIpPort, "-connect-right", RightIpPort]) ->
         do_connect_right_then_wait_then_connect_left(split_ip_and_port(LeftIpPort), make_ip_port_map(RightIpPort))
     catch
         throw:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         exit:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         error:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err])
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err])
     end;
 
 % 这种模式的处理方案: right socket 要先被连上, 然后 left socket 再被客户端连接, 然后互相转发它俩;
@@ -72,20 +72,20 @@ main(["-listen-left", LeftPort, "-listen-right", RightPort]) ->
     try
         {ok, LeftListenSock} = tcp_listen(parse_int(LeftPort)),
         {ok, RightListenSock} = tcp_listen(parse_int(RightPort)),
-        io:format("t:~p Start proxy listen tcp://127.0.0.1:~p and listen tcp://127.0.0.1:~p~n", [erlang:system_time(millisecond), LeftPort, RightPort]),
+        io:format("~s Start proxy listen tcp://127.0.0.1:~s and listen tcp://127.0.0.1:~s~n", [get_yymmddhhmmssmm_str(), LeftPort, RightPort]),
         wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
     catch
         throw:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         exit:Err ->
-            io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err]);
+            io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err]);
         error:Err ->
             case Err of
                 {badmatch, {error, eaddrinuse}} ->
-                    io:format("t:~p Error! Address in use: tcp://127.0.0.1:~p~n", [erlang:system_time(millisecond), LeftPort]),
-                    io:format("t:~p Error! Address in use: tcp://127.0.0.1:~p~n", [erlang:system_time(millisecond), RightPort]);
+                    io:format("~s Error! Address in use: tcp://127.0.0.1:~s~n", [get_yymmddhhmmssmm_str(), LeftPort]),
+                    io:format("~s Error! Address in use: tcp://127.0.0.1:~s~n", [get_yymmddhhmmssmm_str(), RightPort]);
                 _ ->
-                    io:format("t:~p Error: ~p~n", [erlang:system_time(millisecond), Err])
+                    io:format("~s Error: ~p~n", [get_yymmddhhmmssmm_str(), Err])
             end
     end;
 
@@ -94,7 +94,7 @@ main(_) ->
 
 do_listen_left_then_connect_right(LeftPort, RightIpPortRcd) ->
     {ok, LeftListenSock} = tcp_listen(LeftPort),
-    io:format("t:~p Start proxy tcp://127.0.0.1:~p to tcp://~s:~p~n", [erlang:system_time(millisecond), LeftPort, RightIpPortRcd#ip_port.ip, RightIpPortRcd#ip_port.port]),
+    io:format("~s Start proxy tcp://127.0.0.1:~p to tcp://~s:~p~n", [get_yymmddhhmmssmm_str(), LeftPort, RightIpPortRcd#ip_port.ip, RightIpPortRcd#ip_port.port]),
     wait_a_new_left_socket(LeftListenSock, RightIpPortRcd#ip_port.ip, RightIpPortRcd#ip_port.port).
 
 % do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], #{ip := RightIp, port := RightPort} = RightIpPortMap) ->
@@ -103,10 +103,10 @@ do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
     RightPort = maps:get(port, RightIpPortMap),
     case tcp_connect(RightIp, RightPort) of
         {ok, RightSocket} ->
-            io:format("t:~p Proxy connected on a new right socket: ~p~n", [erlang:system_time(millisecond), RightSocket]),
+            io:format("~s Proxy connected on a new right socket: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
             wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap);
         {error, can_not_connect} ->
-            io:format("t:~p Error! Can not connect right socket: tcp://~s:~p~n", [erlang:system_time(millisecond), RightIp, RightPort]),
+            io:format("~s Error! Can not connect right socket: tcp://~s:~s~n", [get_yymmddhhmmssmm_str(), RightIp, RightPort]),
             timer:sleep(1000),
             do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
     end.
@@ -114,15 +114,15 @@ do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
 wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap) ->
     receive
         {tcp, RightSocket, <<1:8>>} -> % 收到 1byte 1, 则链接左边
-            io:format("t:~p got <<1:8>> ~p~n", [erlang:system_time(millisecond), RightSocket]),
+            io:format("~s got <<1:8>> ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
             case tcp_connect(LeftIp, LeftPort) of
                 {ok, LeftSocket} ->
-                    io:format("t:~p Proxy connected on a new left socket: ~p~n", [erlang:system_time(millisecond), LeftSocket]),
+                    io:format("~s Proxy connected on a new left socket: ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket]),
                     gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始转发数据
                     bind_left_and_right(LeftSocket, RightSocket),
                     do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap);
                 {error, can_not_connect} ->
-                    io:format("t:~p Error! Can not connect left socket: tcp://~s:~p~n", [erlang:system_time(millisecond), LeftIp, LeftPort]),
+                    io:format("~s Error! Can not connect left socket: tcp://~s:~p~n", [get_yymmddhhmmssmm_str(), LeftIp, LeftPort]),
                     gen_tcp:send(RightSocket, <<0:8>>), % 发送 1byte 0, 通知那头无法连接
                     wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap)
             end;
@@ -131,17 +131,17 @@ wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap
             gen_tcp:send(RightSocket, <<0:8>>), % 发送 1byte 0, 回一下心跳
             wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap);
         {tcp, RightSocket, Bin} ->
-            io:format("t:~p Error! Right socket is not our proxy, ~p got message: ~p~n", [erlang:system_time(millisecond), RightSocket, Bin]),
+            io:format("~s Error! Right socket is not our proxy, ~p got message: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket, Bin]),
             gen_tcp:close(RightSocket),
             timer:sleep(3000),
             do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap);
         {tcp_closed, RightSocket} ->
-            io:format("t:~p Right socket disconnected: ~p~n", [erlang:system_time(millisecond), RightSocket]),
+            io:format("~s Right socket disconnected: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
             gen_tcp:close(RightSocket),
             %timer:sleep(3000),
             do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
     after 60000 -> % 每60秒无响应则断开重连
-        io:format("t:~p Close right socket after 60 seconds: ~p~n", [erlang:system_time(millisecond), RightSocket]),
+        io:format("~s Close right socket after 60 seconds: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
         gen_tcp:close(RightSocket),
         do_connect_right_then_wait_then_connect_left([LeftIp, LeftPort], RightIpPortMap)
     end.
@@ -149,14 +149,14 @@ wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap
 wait_a_new_left_socket(LeftListenSock, RightIp, RightPort) ->
     {ok, LeftSocket} = wait_until_socket_connected(LeftListenSock),
     {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
-    io:format("t:~p A new left socket connected: ~p ~p:~p~n", [erlang:system_time(millisecond), LeftSocket, LeftClientIp, LeftClientPort]),
+    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort]),
     case tcp_connect(RightIp, RightPort) of
         {ok, RightSocket} ->
-            io:format("t:~p A new right socket connected: ~p~n", [erlang:system_time(millisecond), RightSocket]),
+            io:format("~s A new right socket connected: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
             bind_left_and_right(LeftSocket, RightSocket);
         {error, can_not_connect} ->
-            io:format("t:~p Error! Can not connect right socket: tcp://~s:~p~n", [erlang:system_time(millisecond), RightIp, RightPort]),
-            io:format("t:~p Close left socket: ~p~n", [erlang:system_time(millisecond), LeftSocket]),
+            io:format("~s Error! Can not connect right socket: tcp://~s:~p~n", [get_yymmddhhmmssmm_str(), RightIp, RightPort]),
+            io:format("~s Close left socket: ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket]),
             gen_tcp:close(LeftSocket)
     end,
     wait_a_new_left_socket(LeftListenSock, RightIp, RightPort).
@@ -166,14 +166,14 @@ wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock) -
         {ok, RightSocket} ->
             case inet:peername(RightSocket) of
                 {ok, {RightClientIp, RightClientPort}} ->
-                    io:format("t:~p A new right socket connected: ~p ~p:~p~n", [erlang:system_time(millisecond), RightSocket, RightClientIp, RightClientPort]),
+                    io:format("~s A new right socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), RightSocket, RightClientIp, RightClientPort]),
                     wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
                 {error, Reason} ->
-                    io:format("t:~p Opps! A right socket leaved! {error, ~p}~n", [erlang:system_time(millisecond), Reason]),
+                    io:format("~s Opps! A right socket leaved! {error, ~p}~n", [get_yymmddhhmmssmm_str(), Reason]),
                     wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
             end;
         O ->
-            io:format("t:~p Opps! A right socket leaved! ~p~n", [erlang:system_time(millisecond), O]),
+            io:format("~s Opps! A right socket leaved! ~p~n", [get_yymmddhhmmssmm_str(), O]),
             wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
     end.
 
@@ -185,12 +185,12 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
                 {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 心跳的回复
                     wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
                 {tcp_closed, RightSocket} ->
-                    io:format("t:~p Error! Right socket closed! ~p ~n", [erlang:system_time(millisecond), RightSocket]),
+                    io:format("~s Error! Right socket closed! ~p ~n", [get_yymmddhhmmssmm_str(), RightSocket]),
                     gen_tcp:close(RightSocket),
                     c:flush(),
                     wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
             after 3000 ->
-                io:format("t:~p Error! Right socket not response! ~p ~n", [erlang:system_time(millisecond), RightSocket]),
+                io:format("~s Heartbeat Error! Right socket not response! ~p ~n", [get_yymmddhhmmssmm_str(), RightSocket]),
                 gen_tcp:close(RightSocket),
                 c:flush(),
                 wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
@@ -198,7 +198,7 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
         {ok, LeftSocket} ->
             case inet:peername(LeftSocket) of
                 {ok, {LeftClientIp, LeftClientPort}} ->
-                    io:format("t:~p A new left socket connected: ~p ~p:~p~n", [erlang:system_time(millisecond), LeftSocket, LeftClientIp, LeftClientPort]),
+                    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort]),
                     gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始连left
                     receive
                         {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 那头无法连接左边, 我也断开左边
@@ -210,14 +210,14 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
                             c:flush(),
                             wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
                     after 5000 ->
-                        io:format("t:~p Error! Right socket not response! ~p ~n", [erlang:system_time(millisecond), RightSocket]),
+                        io:format("~s Error! Right socket not response! Maybe Change left and right! ~p ~n", [get_yymmddhhmmssmm_str(), RightSocket]),
                         gen_tcp:close(LeftSocket),
                         gen_tcp:close(RightSocket),
                         c:flush(),
                         wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
                     end;
                 {error, Reason} ->
-                    io:format("t:~p Opps! A left socket leaved! {error, ~p}~n", [erlang:system_time(millisecond), Reason]),
+                    io:format("~s Opps! A left socket leaved! {error, ~p}~n", [get_yymmddhhmmssmm_str(), Reason]),
                     gen_tcp:close(RightSocket),
                     c:flush(),
                     wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
@@ -228,34 +228,34 @@ bind_left_and_right(LeftSocket, RightSocket) ->
     Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket) end),
     gen_tcp:controlling_process(LeftSocket, Pid),
     gen_tcp:controlling_process(RightSocket, Pid),
-    io:format("t:~p Success! Now proxy two sockets! ~p <-> ~p ~n", [erlang:system_time(millisecond), LeftSocket, RightSocket]).
+    io:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]).
 
 loop(LeftSocket, RightSocket) ->
     receive
         {tcp, LeftSocket, Bin} ->
-            io:format("t:~p ~p ----------> ~p bytes~n", [erlang:system_time(millisecond), LeftSocket, size(Bin)]),
+            io:format("~s ~p -----> ~p bytes~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]),
             %gen_tcp:send(LeftSocket, <<"yoyo~", Bin/big-binary>>),
             case gen_tcp:send(RightSocket, Bin) of
                 ok ->
                     loop(LeftSocket, RightSocket);
                 {error, Reason} ->
-                    io:format("t:~p                         {error, ~p} <---------- ~p~n", [erlang:system_time(millisecond), Reason, RightSocket]),
+                    io:format("~s                   {error, ~p} <----- ~p~n", [get_yymmddhhmmssmm_str(), Reason, RightSocket]),
                     gen_tcp:close(LeftSocket)
             end;
         {tcp, RightSocket, Bin} ->
-            io:format("t:~p                         ~p bytes <---------- ~p~n", [erlang:system_time(millisecond), size(Bin), RightSocket]),
+            io:format("~s                   ~p bytes <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]),
             case gen_tcp:send(LeftSocket, Bin) of
                 ok ->
                     loop(LeftSocket, RightSocket);
                 {error, Reason} ->
-                    io:format("t:~p ~p ----------> {error, ~p}~n", [erlang:system_time(millisecond), LeftSocket, Reason]),
+                    io:format("~s ~p -----> {error, ~p}~n", [get_yymmddhhmmssmm_str(), LeftSocket, Reason]),
                     gen_tcp:close(RightSocket)
             end;
         {tcp_closed, LeftSocket} ->
-            io:format("t:~p ~p ----------> disconnect ----------> ~p~n", [erlang:system_time(millisecond), LeftSocket, RightSocket]),
+            io:format("~s ~p -----> disconnect -----> ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]),
             gen_tcp:close(RightSocket);
         {tcp_closed, RightSocket} ->
-            io:format("t:~p ~p <---------- disconnect <---------- ~p~n", [erlang:system_time(millisecond), LeftSocket, RightSocket]),
+            io:format("~s ~p <----- disconnect <----- ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]),
             gen_tcp:close(LeftSocket)
     end.
 
@@ -302,6 +302,14 @@ tcp_connect(Ip, Port, Count) ->
             timer:sleep(1000),
             tcp_connect(Ip, Port, Count + 1)
     end.
+
+get_yymmddhhmmssmm_str() ->
+    NowMillisecond = erlang:system_time(millisecond), % 1610803593978
+    A = NowMillisecond div 1000000000, % 1610
+    B = (NowMillisecond div 1000) rem (A * 1000000), % 803593
+    C = (NowMillisecond rem ((NowMillisecond div 1000) * 1000)), % 978
+	{{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time({A, B, C}),
+	lists:flatten(io_lib:format("~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w.~3..0w", [Year, Month, Day, Hour, Minute, Second, C])).  % "2021-01-16 21:35:15.321"
 
 
 % ssh -f -N -T -R 2222:localhost:22 sourceuser@138.47.99.99
