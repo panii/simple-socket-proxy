@@ -28,14 +28,15 @@
 
 main(Args) when Args == ["help"] orelse Args == ["-help"] orelse Args == ["--help"] orelse Args == ["-h"] orelse Args == ["--h"] orelse Args == ["/?"] ->
 	io:format("usage:
-        1: ./proxy -listen-left 13306 -listen-right 23306
-        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306
-        3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306
+        1: ./proxy -listen-left 13306 -listen-right 23306 -dump no
+        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306 -dump no
+        3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump no
     ");
 
 % 这种模式的处理方案: 收到left socket连接后, 去连接right socket; 而后互相转发它俩; 传统正向代理
 % ./proxy -listen-left 13306 -connect-right 127.0.0.1:3306
-main(["-listen-left", LeftPort, "-connect-right", RightIpPort]) ->
+main(["-listen-left", LeftPort, "-connect-right", RightIpPort, "-dump", DoDump]) ->
+    put(do_dump, DoDump),
     try
         %spawn(fun() -> observer:start() end),
         do_listen_left_then_connect_right(parse_int(LeftPort), make_ip_port_record(RightIpPort))
@@ -54,7 +55,8 @@ main(["-listen-left", LeftPort, "-connect-right", RightIpPort]) ->
     end;
 
 % 这种模式的处理方案: 先连接right socket, 连上后, 等待right socket发来信号, 才去连left socket; 而后互相转发它俩; 实现反向代理的内网发起端
-main(["-connect-left", LeftIpPort, "-connect-right", RightIpPort]) ->
+main(["-connect-left", LeftIpPort, "-connect-right", RightIpPort, "-dump", DoDump]) ->
+    put(do_dump, DoDump),
     try
         do_connect_right_then_wait_then_connect_left(split_ip_and_port(LeftIpPort), make_ip_port_map(RightIpPort))
     catch
@@ -68,7 +70,8 @@ main(["-connect-left", LeftIpPort, "-connect-right", RightIpPort]) ->
 
 % 这种模式的处理方案: right socket 要先被连上, 然后 left socket 再被客户端连接, 然后互相转发它俩;
 % ./proxy -listen-left 2222 -listen-right 2223
-main(["-listen-left", LeftPort, "-listen-right", RightPort]) ->
+main(["-listen-left", LeftPort, "-listen-right", RightPort, "-dump", DoDump]) ->
+    put(do_dump, DoDump),
     try
         {ok, LeftListenSock} = tcp_listen(parse_int(LeftPort)),
         {ok, RightListenSock} = tcp_listen(parse_int(RightPort)),
@@ -233,7 +236,13 @@ bind_left_and_right(LeftSocket, RightSocket) ->
 loop(LeftSocket, RightSocket) ->
     receive
         {tcp, LeftSocket, Bin} ->
-            io:format("~s ~p -----> ~p bytes~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]),
+            Siz = case get(do_dump) of
+                <<"no">> ->
+                    size(Bin);
+                _ ->
+                    Bin
+            end,
+            io:format("~s ~p -----> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, Siz]),
             %gen_tcp:send(LeftSocket, <<"yoyo~", Bin/big-binary>>),
             case gen_tcp:send(RightSocket, Bin) of
                 ok ->
@@ -243,7 +252,13 @@ loop(LeftSocket, RightSocket) ->
                     gen_tcp:close(LeftSocket)
             end;
         {tcp, RightSocket, Bin} ->
-            io:format("~s                   ~p bytes <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]),
+            Siz = case get(do_dump) of
+                <<"no">> ->
+                    size(Bin);
+                _ ->
+                    Bin
+            end,
+            io:format("~s                   ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), Siz, RightSocket]),
             case gen_tcp:send(LeftSocket, Bin) of
                 ok ->
                     loop(LeftSocket, RightSocket);
