@@ -28,9 +28,9 @@
 
 main(Args) when Args == ["help"] orelse Args == ["-help"] orelse Args == ["--help"] orelse Args == ["-h"] orelse Args == ["--h"] orelse Args == ["/?"] ->
 	io:format("usage:
-        1: ./proxy -listen-left 13306 -listen-right 23306 -dump no
-        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306 -dump no
-        3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump no
+        1: ./proxy -listen-left 13306 -listen-right 23306 -dump no|size|str
+        2: ./proxy -connect-left 127.0.0.1:3306 -connect-right 127.0.0.1:23306 -dump no|size|str
+        3: ./proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump no|size|str
     ");
 
 % 这种模式的处理方案: 收到left socket连接后, 去连接right socket; 而后互相转发它俩; 传统正向代理
@@ -228,40 +228,49 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
     end.
 
 bind_left_and_right(LeftSocket, RightSocket) ->
-    Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket) end),
+    DoDump = get(do_dump),
+    Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket, DoDump) end),
     gen_tcp:controlling_process(LeftSocket, Pid),
     gen_tcp:controlling_process(RightSocket, Pid),
     io:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]).
 
-loop(LeftSocket, RightSocket) ->
+loop(LeftSocket, RightSocket, DoDump) ->
     receive
         {tcp, LeftSocket, Bin} ->
-            Siz = case get(do_dump) of
-                <<"no">> ->
-                    size(Bin);
+            case DoDump of
+                "no" ->
+                    void;
+                "size" ->
+                    io:format("~s ~p -----> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]);
+                "str" ->
+                    io:format("~s ~p -----> ~s ~n", [get_yymmddhhmmssmm_str(), LeftSocket, Bin]);
                 _ ->
-                    Bin
+                    void
             end,
-            io:format("~s ~p -----> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, Siz]),
+            
             %gen_tcp:send(LeftSocket, <<"yoyo~", Bin/big-binary>>),
             case gen_tcp:send(RightSocket, Bin) of
                 ok ->
-                    loop(LeftSocket, RightSocket);
+                    loop(LeftSocket, RightSocket, DoDump);
                 {error, Reason} ->
                     io:format("~s                   {error, ~p} <----- ~p~n", [get_yymmddhhmmssmm_str(), Reason, RightSocket]),
                     gen_tcp:close(LeftSocket)
             end;
         {tcp, RightSocket, Bin} ->
-            Siz = case get(do_dump) of
-                <<"no">> ->
-                    size(Bin);
+            case DoDump of
+                "no" ->
+                    void;
+                "size" ->
+                    io:format("~s                   ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]);
+                "str" ->
+                    io:format("~s                   ~s <----- ~p~n", [get_yymmddhhmmssmm_str(), Bin, RightSocket]);
                 _ ->
-                    Bin
+                    void
             end,
-            io:format("~s                   ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), Siz, RightSocket]),
+            
             case gen_tcp:send(LeftSocket, Bin) of
                 ok ->
-                    loop(LeftSocket, RightSocket);
+                    loop(LeftSocket, RightSocket, DoDump);
                 {error, Reason} ->
                     io:format("~s ~p -----> {error, ~p}~n", [get_yymmddhhmmssmm_str(), LeftSocket, Reason]),
                     gen_tcp:close(RightSocket)
