@@ -29,3 +29,11 @@
 %   |                            |      |                                               |  
 %   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+  
 ```
+
+2021年4月22日 update  
+docker中执行  
+```
+sudo docker run -it --rm --name socket-proxy1 -dp 3000:3000 -v "$PWD":/usr/src/myapp -w /usr/src/myapp erlang:23.3-alpine escript proxy -listen-left 3000 -connect-right 192.168.3.73:22 -dump str
+sudo docker logs -f socket-proxy1
+sudo docker stop socket-proxy1
+```
