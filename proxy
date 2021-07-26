@@ -335,7 +335,7 @@ get_yymmddhhmmssmm_str() ->
 	{{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time({A, B, C}),
 	lists:flatten(io_lib:format("~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w.~3..0w", [Year, Month, Day, Hour, Minute, Second, C])).  % "2021-01-16 21:35:15.321"
 
-
+% ssh -fNg -L 3307:localhost:3307 root@111.231.76.107 -p
 % ssh -f -N -T -R 2222:localhost:22 sourceuser@138.47.99.99
 
     %-f: tells the SSH to background itself after it authenticates, saving you time by not having to run something on the remote server for the tunnel to remain alive.
