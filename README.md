@@ -45,5 +45,5 @@ sudo docker stop socket-proxy1
 ```
 可以方便的这样用
 sudo docker run panii/simple-socket-proxy --help
-sudo docker run -d --net=host panii/simple-socket-proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump str
+sudo docker run -d --net=host panii/simple-socket-proxy -listen-left 33306 -connect-right 192.168.3.73:3306 -dump str
 ```
