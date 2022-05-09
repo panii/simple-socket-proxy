@@ -280,6 +280,14 @@ loop(LeftSocket, RightSocket, DoDump) ->
             gen_tcp:close(RightSocket);
         {tcp_closed, RightSocket} ->
             io:format("~s ~p <----- disconnect <----- ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]),
+            gen_tcp:close(LeftSocket);
+        {tcp_error, LeftSocket, Reason} ->
+            io:format("~s ~p ~p -----> disconnect -----> ~p~n", [get_yymmddhhmmssmm_str(), Reason, LeftSocket, RightSocket]),
+            gen_tcp:close(LeftSocket),
+            gen_tcp:close(RightSocket);
+        {tcp_error, RightSocket, Reason} ->
+            io:format("~s ~p ~p <----- disconnect <----- ~p~n", [get_yymmddhhmmssmm_str(), Reason, LeftSocket, RightSocket]),
+            gen_tcp:close(RightSocket),
             gen_tcp:close(LeftSocket)
     end.
 
