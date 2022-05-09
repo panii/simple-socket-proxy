@@ -289,6 +289,10 @@ loop(LeftSocket, RightSocket, DoDump) ->
             io:format("~s ~p ~p <----- disconnect <----- ~p~n", [get_yymmddhhmmssmm_str(), Reason, LeftSocket, RightSocket]),
             gen_tcp:close(RightSocket),
             gen_tcp:close(LeftSocket)
+    after 125000 -> % 125秒双方无通信则断开双方
+        io:format("~s Close 2 socket after 125 seconds: ~p and ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket]),
+        gen_tcp:close(LeftSocket),
+        gen_tcp:close(RightSocket)
     end.
 
 split_ip_and_port(IpPort) -> % 127.0.0.1:3306
