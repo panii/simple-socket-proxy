@@ -150,17 +150,28 @@ wait_right_socket_initial_signal(RightSocket, {LeftIp, LeftPort}, RightIpPortMap
     end.
     
 wait_a_new_left_socket(LeftListenSock, RightIp, RightPort) ->
-    {ok, LeftSocket} = wait_until_socket_connected(LeftListenSock),
-    {ok, {LeftClientIp, LeftClientPort}} = inet:peername(LeftSocket),
-    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort]),
-    case tcp_connect(RightIp, RightPort) of
-        {ok, RightSocket} ->
-            io:format("~s A new right socket connected: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
-            bind_left_and_right(LeftSocket, RightSocket);
-        {error, can_not_connect} ->
-            io:format("~s Error! Can not connect right socket: tcp://~s:~p~n", [get_yymmddhhmmssmm_str(), RightIp, RightPort]),
-            io:format("~s Close left socket: ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket]),
-            gen_tcp:close(LeftSocket)
+    case wait_until_socket_connected(LeftListenSock) of
+        {ok, LeftSocket} ->
+            case inet:peername(LeftSocket) of
+                {ok, {LeftClientIp, LeftClientPort}} ->
+                    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort]),
+                    case tcp_connect(RightIp, RightPort) of
+                        {ok, RightSocket} ->
+                            io:format("~s A new right socket connected: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket]),
+                            bind_left_and_right(LeftSocket, RightSocket);
+                        {error, can_not_connect} ->
+                            io:format("~s Error! Can not connect right socket: tcp://~s:~p~n", [get_yymmddhhmmssmm_str(), RightIp, RightPort]),
+                            io:format("~s Close left socket: ~p~n", [get_yymmddhhmmssmm_str(), LeftSocket]),
+                            gen_tcp:close(LeftSocket),
+                            c:flush()
+                    end;
+                W ->
+                    io:format("~s Opps! left socket peername return error! ~p~n", [get_yymmddhhmmssmm_str(), W]),
+                    gen_tcp:close(LeftSocket),
+                    c:flush()
+            end;
+        O ->
+            io:format("~s Opps! left socket error! ~p~n", [get_yymmddhhmmssmm_str(), O])
     end,
     wait_a_new_left_socket(LeftListenSock, RightIp, RightPort).
 
@@ -173,6 +184,8 @@ wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock) -
                     wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
                 {error, Reason} ->
                     io:format("~s Opps! A right socket leaved! {error, ~p}~n", [get_yymmddhhmmssmm_str(), Reason]),
+                    gen_tcp:close(RightSocket),
+                    c:flush(),
                     wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock)
             end;
         O ->
