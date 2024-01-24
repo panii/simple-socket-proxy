@@ -13,8 +13,8 @@
 命令如下图:
 ```
 %    +------------------------[ Company Network ]-----------------------------+  
-%    |   第二步：                                                             |  
-%    |   <proxy -connect-left 192.168.1.101:22 -connect-right x.x.x.x:2222>   | <-------------------+  
+%    |   Second Step:                                                         |  
+%    |   <proxy -connect-left internel_ip:22 -connect-right public_ip:2222>   | <-------------------+  
 %    |                                |                                       |                     |  
 %    |                                |                                       |                     |  
 %    |           +------------+       |                                       |                     |  
@@ -27,7 +27,7 @@
 %                                                                                                   |  
 %   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+           |  
 %   |                            |      |                                               |           |  
-%   | 第三步：                   |      | 第一步：                                      |           |  
+%   | Third Step:                |      | First Step:                                   |           |  
 %   | <ssh root@x.x.x.x -p 1222> | ---> | <proxy -listen-left 1222 -listen-right 2222>  | <---------+  
 %   |                            |      |                                               |  
 %   |                            |      |                                               |  
