@@ -1,6 +1,8 @@
 FROM erlang:23.3-alpine
 WORKDIR /usr/src/myapp
-RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-RUN echo 'Asia/Shanghai' > /etc/timezone
+
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+
 COPY proxy .
 ENTRYPOINT ["/usr/local/bin/escript", "proxy"]

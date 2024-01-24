@@ -34,6 +34,13 @@
 %   +----------[ Home ]----------+      +--------------[ Public Network ]---------------+  
 ```
 
+2024年1月24日 update  
+fix peername异常的情况, docker镜像也更新了时间戳
+```
+sudo docker run -d --net=host panii/simple-socket-proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump str 日志的时间默认按北京时间显示
+sudo docker run -d -e TZ=America/Phoenix --net=host panii/simple-socket-proxy -listen-left 33306 -connect-right 127.0.0.1:3306 -dump str 日志的时间修改成其它时区显示
+```
+
 2022年5月9日 update  
 可以方便在docker中执行, 开放自己的13306端口, 数据包与172.19.133.87:3306端口进行转发
 ```
