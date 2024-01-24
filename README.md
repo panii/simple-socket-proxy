@@ -60,3 +60,12 @@ sudo docker run panii/simple-socket-proxy --help
 sudo docker run -d --net=host panii/simple-socket-proxy -listen-left 33306 -connect-right 192.168.3.73:3306 -dump str
 sudo docker run -d --net=host --restart=always panii/simple-socket-proxy -connect-left 127.0.0.1:3389 -connect-right 120.55.171.141:23389 -dump no
 ```
+
+备注
+```
+sudo docker build -t simple-socket-proxy .
+sudo docker login -u panii
+sudo docker run simple-socket-proxy --help
+sudo docker tag simple-socket-proxy:latest panii/simple-socket-proxy:latest
+sudo docker push panii/simple-socket-proxy:latest
+```
