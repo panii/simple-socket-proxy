@@ -28,6 +28,14 @@
 	port
 }).
 
+-record(state_for_inject_statistics, {
+	connect_count = 0,
+	sent_count = 0,
+    force_close_connect_index = 0,
+    force_close_sent_index = 0,
+    force_lock_ip = void
+}).
+
 main(Args) when Args == ["help"] orelse Args == ["-help"] orelse Args == ["--help"] orelse Args == ["-h"] orelse Args == ["--h"] orelse Args == ["/?"] ->
 	io:format("usage:
         1: ./proxy -listen-left 13306 -listen-right 23306 -dump no|size|str
@@ -162,7 +170,7 @@ wait_a_new_left_socket(LeftListenSock, RightIp, RightPort) ->
         {ok, LeftSocket} ->
             case inet:peername(LeftSocket) of
                 {ok, {LeftClientIp, LeftClientPort}} ->
-                    my_echo(io_lib:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort])),
+                    my_echo(io_lib:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, inet:ntoa(LeftClientIp), LeftClientPort])),
                     case tcp_connect(RightIp, RightPort) of
                         {ok, RightSocket} ->
                             my_echo(io_lib:format("~s A new right socket connected: ~p~n", [get_yymmddhhmmssmm_str(), RightSocket])),
@@ -188,7 +196,7 @@ wait_right_connected_then_wait_left_connected(LeftListenSock, RightListenSock) -
         {ok, RightSocket} ->
             case inet:peername(RightSocket) of
                 {ok, {RightClientIp, RightClientPort}} ->
-                    io:format("~s A new right socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), RightSocket, RightClientIp, RightClientPort]),
+                    io:format("~s A new right socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), RightSocket, inet:ntoa(RightClientIp), RightClientPort]),
                     wait_left_connected(LeftListenSock, RightListenSock, RightSocket);
                 {error, Reason} ->
                     io:format("~s Opps! A right socket leaved! {error, ~p}~n", [get_yymmddhhmmssmm_str(), Reason]),
@@ -222,7 +230,7 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
         {ok, LeftSocket} ->
             case inet:peername(LeftSocket) of
                 {ok, {LeftClientIp, LeftClientPort}} ->
-                    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, LeftClientIp, LeftClientPort]),
+                    io:format("~s A new left socket connected: ~p ~p:~p~n", [get_yymmddhhmmssmm_str(), LeftSocket, inet:ntoa(LeftClientIp), LeftClientPort]),
                     gen_tcp:send(RightSocket, <<1:8>>), % 发送 1byte 1, 通知那头可以开始连left
                     receive
                         {tcp, RightSocket, <<0:8>>} -> % 收到 1byte 0, 那头无法连接左边, 我也断开左边
@@ -253,7 +261,8 @@ bind_left_and_right(LeftSocket, RightSocket) ->
     Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket, DoDump) end),
     gen_tcp:controlling_process(LeftSocket, Pid),
     gen_tcp:controlling_process(RightSocket, Pid),
-    my_echo(io_lib:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket])).
+    my_echo(io_lib:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket])),
+    connect_count_for_inject_plus(DoDump).
 
 my_echo(Msg) ->
     DoDump = get(do_dump),
@@ -269,6 +278,16 @@ my_echo(Msg, DoDump) ->
             void
     end.
 
+connect_count_for_inject_plus(DoDump) ->
+    case is_pid(DoDump) of
+        true ->
+            InjectPid = DoDump,
+            InjectPid ! {connect_count_for_inject_plus};
+        _ ->
+            void
+    end.
+
+
 loop(LeftSocket, RightSocket, DoDump) ->
     receive
         {tcp, LeftSocket, Bin} ->
@@ -276,16 +295,29 @@ loop(LeftSocket, RightSocket, DoDump) ->
                 "no" ->
                     void;
                 "size" ->
-                    io:format("~s ~p -----> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]);
+                    io:format("~s ~p -----> ~p ->~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]);
                 "str" ->
                     PprintBin = iterate_binary(Bin),
-                    io:format("~s ~p --[~p]--> ```~s``` ~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin), PprintBin]);
+                    io:format("~s ~p --[~p]--> ```~s``` ->~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin), PprintBin]);
                 InjectPid when is_pid(InjectPid) ->
+                    InjectPid ! {sent_count_for_inject_plus, self()},
                     PprintBin = iterate_binary(Bin),
-                    InjectPid ! {inject_message, 
-                        io_lib:format("~s ~p -----> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]),
-                        io_lib:format("~s ~p --[~p]--> ```~s``` ~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin), PprintBin])
-                    };
+                    receive 
+                        force_stop ->
+                            InjectPid ! {inject_message, 
+                                io_lib:format("~s ~p -----> ~p ->X~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]),
+                                io_lib:format("~s ~p --[~p]--> ```~s``` ->X~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin), PprintBin])
+                            },
+                            io:format("~s      -----!!!!!{force_stop! So close left socket ~p}!!!!!----- ~n", [get_yymmddhhmmssmm_str(), LeftSocket]),
+                            gen_tcp:close(LeftSocket),
+                            gen_tcp:close(RightSocket),
+                            exit(normal);
+                        allow ->
+                            InjectPid ! {inject_message, 
+                                io_lib:format("~s ~p -----> ~p ->~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin)]),
+                                io_lib:format("~s ~p --[~p]--> ```~s``` ->~n", [get_yymmddhhmmssmm_str(), LeftSocket, size(Bin), PprintBin])
+                            }
+                    end;
                 _ ->
                     void
             end,
@@ -303,15 +335,15 @@ loop(LeftSocket, RightSocket, DoDump) ->
                 "no" ->
                     void;
                 "size" ->
-                    io:format("~s                   ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]);
+                    io:format("~s                <- ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]);
                 "str" ->
                     PprintBin = iterate_binary(Bin),
-                    io:format("~s                   ```~s``` <--[~p]-- ~p~n", [get_yymmddhhmmssmm_str(), PprintBin, size(Bin), RightSocket]);
+                    io:format("~s                <- ```~s``` <--[~p]-- ~p~n", [get_yymmddhhmmssmm_str(), PprintBin, size(Bin), RightSocket]);
                 InjectPid when is_pid(InjectPid) ->
                     PprintBin = iterate_binary(Bin),
                     InjectPid ! {inject_message, 
-                        io_lib:format("~s                   ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]), 
-                        io_lib:format("~s                   ```~s``` <--[~p]-- ~p~n", [get_yymmddhhmmssmm_str(), PprintBin, size(Bin), RightSocket])
+                        io_lib:format("~s                <- ~p <----- ~p~n", [get_yymmddhhmmssmm_str(), size(Bin), RightSocket]), 
+                        io_lib:format("~s                <- ```~s``` <--[~p]-- ~p~n", [get_yymmddhhmmssmm_str(), PprintBin, size(Bin), RightSocket])
                     };
                 _ ->
                     void
@@ -347,24 +379,64 @@ loop(LeftSocket, RightSocket, DoDump) ->
 inject_handle(InjectPort) ->
     InjectPid = self(),
     spawn_link(fun() -> inject_listen(InjectPort, InjectPid) end),
-    loop_inject_handle_message(InjectPid, false, [], [], [], void, 0).
+    loop_inject_handle_message(InjectPid, false, [], [], [], void, 0, #state_for_inject_statistics{}).
 
-loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer) ->
+loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics) ->
     receive
+        {connect_count_for_inject_plus} ->
+            case DoRecord of 
+                true ->
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics#state_for_inject_statistics{connect_count = StateForInjectStatistics#state_for_inject_statistics.connect_count + 1});
+                _ ->
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
+            end;
+        {sent_count_for_inject_plus, BindPId} ->
+            case DoRecord of 
+                true ->
+                    case StateForInjectStatistics#state_for_inject_statistics.connect_count =:= StateForInjectStatistics#state_for_inject_statistics.force_close_connect_index of
+                        true ->
+                            case StateForInjectStatistics#state_for_inject_statistics.sent_count + 1 =:= StateForInjectStatistics#state_for_inject_statistics.force_close_sent_index of
+                                true ->
+                                    BindPId ! force_stop;
+                                _ ->
+                                    BindPId ! allow
+                            end,
+                            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics#state_for_inject_statistics{sent_count = StateForInjectStatistics#state_for_inject_statistics.sent_count + 1});
+                        _ ->
+                            BindPId ! allow,
+                            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
+                    end;
+                _ ->
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
+            end;
         {connecting_message, ConnectingLog} ->
             case DoRecord of 
                 true ->
-                    loop_inject_handle_message(InjectPid, DoRecord, [ConnectingLog | ConnectingLogArr], SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer);
+                    loop_inject_handle_message(InjectPid, DoRecord, [ConnectingLog | ConnectingLogArr], SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics);
                 _ ->
-                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer)
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
             end;
         {inject_message, SizeLog, DetailLog} ->
             case DoRecord of 
                 true ->
-                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, [SizeLog | SizeLogArr], [DetailLog | DetailLogArr], InjectSocketControllPid, Timer);
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, [SizeLog | SizeLogArr], [DetailLog | DetailLogArr], InjectSocketControllPid, Timer, StateForInjectStatistics);
                 _ ->
-                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer)
+                    loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
             end;
+        {force_close, Ms, ConnectionIndex, SentFinishIndex, LockIp, NewInjectSocketControllPid} ->
+            case InjectSocketControllPid of
+                void ->
+                    NewTimer = erlang:send_after(Ms, self(), {record_time_end});
+                _ ->
+                    erlang:cancel_timer(Timer),
+                    NewTimer = erlang:send_after(Ms, self(), {record_time_end}),
+                    void
+            end,
+            loop_inject_handle_message(InjectPid, true, [], [], [], NewInjectSocketControllPid, NewTimer, #state_for_inject_statistics{
+                force_close_connect_index = ConnectionIndex,
+                force_close_sent_index = SentFinishIndex,
+                force_lock_ip = LockIp
+            });
         {start_record, Ms, NewInjectSocketControllPid} ->
             case InjectSocketControllPid of
                 void ->
@@ -374,7 +446,11 @@ loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, De
                     NewTimer = erlang:send_after(Ms, self(), {record_time_end}),
                     void
             end,
-            loop_inject_handle_message(InjectPid, true, [], [], [], NewInjectSocketControllPid, NewTimer);
+            loop_inject_handle_message(InjectPid, true, [], [], [], NewInjectSocketControllPid, NewTimer, StateForInjectStatistics);
+        {inject_socket_controll_pid_leave, InjectSocketControllPid} ->
+            erlang:cancel_timer(Timer),
+            io:format("cancel timer~n"),
+            loop_inject_handle_message(InjectPid, false, [], [], [], void, 0, #state_for_inject_statistics{});
         {record_time_end} ->
             ConnectingLogBin = iolist_to_binary(lists:reverse(ConnectingLogArr)),
             SizeLogBin = iolist_to_binary(lists:reverse(SizeLogArr)),
@@ -382,14 +458,15 @@ loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, De
             ContentLength = integer_to_binary(size(ConnectingLogBin)*2 + size(SizeLogBin) + 20 + size(DetailLogBin)),
             % Echo = <<ConnectingLogBin/binary, SizeLogBin/binary, "---Detail Below---\r\n", ConnectingLogBin/binary, DetailLogBin/binary>>,
             InjectSocketControllPid ! {result, <<"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: ", ContentLength/binary, "\r\nServer: sss0.1\r\n\r\n", ConnectingLogBin/binary, SizeLogBin/binary, "---Detail Below---\r\n", ConnectingLogBin/binary, DetailLogBin/binary, "\r\n">>},
-            io:format("~s Inject Pid ~p finish record and send result out to ~p ~n", [get_yymmddhhmmssmm_str(), InjectPid, InjectSocketControllPid]),
-            loop_inject_handle_message(InjectPid, false, [], [], [], void, 0);
+            io:format("~s Inject Pid ~p finish record and send result to ~p ~n", [get_yymmddhhmmssmm_str(), InjectPid, InjectSocketControllPid]),
+            io:format("~p~n", [StateForInjectStatistics]),
+            loop_inject_handle_message(InjectPid, false, [], [], [], void, 0, #state_for_inject_statistics{});
         {'DOWN', _Ref, process, PidWorker, Reason} ->
             io:format("~s Inject Pid ~p received DOWN Message: ~p ~p ~n", [get_yymmddhhmmssmm_str(), InjectPid, PidWorker, Reason]),
-            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer);
+            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics);
         Other ->
             io:format("~s Inject Pid ~p received: ~p ~n", [get_yymmddhhmmssmm_str(), InjectPid, Other]),
-            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer)
+            loop_inject_handle_message(InjectPid, DoRecord, ConnectingLogArr, SizeLogArr, DetailLogArr, InjectSocketControllPid, Timer, StateForInjectStatistics)
     end.
 
 inject_listen(InjectPort, InjectPid) ->
@@ -434,7 +511,7 @@ wait_a_new_inject_socket(InjectListenSock, InjectPid, InjectListenProcessPid, Cu
                     case inet:peername(InjectSocket) of
                         {ok, {LeftClientIp, LeftClientPort}} ->
                             Pid = spawn_link(fun() -> loop_inject_socket(InjectSocket, InjectPid, InjectListenProcessPid) end),
-                            io:format("~s A new Inject socket ~p connected: ~p:~p, give it to ~p~n", [get_yymmddhhmmssmm_str(), InjectSocket, LeftClientIp, LeftClientPort, Pid]),
+                            io:format("~s A new Inject socket ~p connected: ~p:~p, give it to ~p~n", [get_yymmddhhmmssmm_str(), InjectSocket, inet:ntoa(LeftClientIp), LeftClientPort, Pid]),
                             gen_tcp:controlling_process(InjectSocket, Pid),
                             CurrentInjectCount2 = 1;
                         W ->
@@ -498,6 +575,28 @@ loop_inject_socket(InjectSocket, InjectPid, InjectListenProcessPid) ->
                             InjectListenProcessPid ! {last_http_finish},
                             gen_tcp:close(InjectSocket)
                     end;
+                7 -> % <<"http header|force_close|300|1|2|192.168.1.5|\r\n", Res/binary>> ->
+                    [_Bin_HttpHeader, Bin_Action, TimerMs, ConnectionIndex, SentFinishIndex, LockIp, _Bin_HttpRes] = Arr,
+                    case Bin_Action of
+                        <<"force_close">> ->
+                            Ms = binary_to_integer2(TimerMs),
+                            ConnectionIndex2 = binary_to_integer2(ConnectionIndex),
+                            SentFinishIndex2 = binary_to_integer2(SentFinishIndex),
+                            LockIp2 = binary_to_list2(LockIp),
+                            case Ms > 1 andalso ConnectionIndex2 > 0 andalso SentFinishIndex2 > 0 of
+                                true ->
+                                    InjectPid ! {force_close, Ms, ConnectionIndex2, SentFinishIndex2, LockIp2, self()},
+                                    loop_inject_socket(InjectSocket, InjectPid, InjectListenProcessPid);
+                                false ->
+                                    gen_tcp:send(InjectSocket, <<"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: 24\r\nServer: sss0.1\r\n\r\n{\"status\":\"not_support\"}\r\n">>),
+                                    InjectListenProcessPid ! {last_http_finish},
+                                    gen_tcp:close(InjectSocket)
+                            end;
+                        _ ->
+                            gen_tcp:send(InjectSocket, <<"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: 24\r\nServer: sss0.1\r\n\r\n{\"status\":\"not_support\"}\r\n">>),
+                            InjectListenProcessPid ! {last_http_finish},
+                            gen_tcp:close(InjectSocket)
+                    end;
                 _ ->
                     io:format("~s Inject socket ~p Got-----> ~p ~n", [get_yymmddhhmmssmm_str(), InjectSocket, Bin]),
                     gen_tcp:send(InjectSocket, <<"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: 24\r\nServer: sss0.1\r\n\r\n{\"status\":\"not_support\"}\r\n">>),
@@ -508,14 +607,17 @@ loop_inject_socket(InjectSocket, InjectPid, InjectListenProcessPid) ->
         {tcp_closed, InjectSocket} ->
             io:format("~s Inject socket ~p-----> disconnect~n", [get_yymmddhhmmssmm_str(), InjectSocket]),
             InjectListenProcessPid ! {last_http_finish},
+            InjectPid ! {inject_socket_controll_pid_leave, self()},
             gen_tcp:close(InjectSocket);
         {tcp_error, InjectSocket, Reason} ->
             io:format("~s Inject socket ~p ~p -----> disconnect~n", [get_yymmddhhmmssmm_str(), Reason, InjectSocket]),
             InjectListenProcessPid ! {last_http_finish},
+            InjectPid ! {inject_socket_controll_pid_leave, self()},
             gen_tcp:close(InjectSocket)
     after 120000 -> % 写死了120秒超时
         io:format("~s Close inject socket ~p after 120 seconds no communicate ~n", [get_yymmddhhmmssmm_str(), InjectSocket]),
         InjectListenProcessPid ! {last_http_finish},
+        InjectPid ! {inject_socket_controll_pid_leave, self()},
         gen_tcp:close(InjectSocket)
     end.
 
@@ -554,7 +656,13 @@ binary_to_integer2(Bin) ->
             io:format("~s Error: binary_to_integer ~p~n", [get_yymmddhhmmssmm_str(), Err]),
             -1
     end.
-    
+
+binary_to_list2(Bin) ->
+    case Bin of
+        <<"">> -> void;
+        _ -> binary_to_list(Bin)
+    end.
+
 wait_until_socket_connected(Listen) ->
     gen_tcp:accept(Listen).
     
