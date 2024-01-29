@@ -44,12 +44,11 @@ sudo docker run -d -e TZ=America/Phoenix --net=host panii/simple-socket-proxy -l
 2022年5月9日 update  
 可以方便在docker中执行, 开放自己的13306端口, 数据包与172.19.133.87:3306端口进行转发
 ```
-git clone git@github.com:panii/simple-socket-proxy.git
-cd simple-socket-proxy
-alias proxy='docker run -v /etc/timezone:/etc/timezone -v /etc/localtime:/etc/localtime -it -d --net=host -v "$PWD":/usr/src/myapp -w /usr/src/myapp erlang:23.3-alpine escript proxy'
-sudo docker run -it --rm --name mysql_proxy -dp 13306:13306 -v "$PWD":/usr/src/myapp -w /usr/src/myapp erlang:23.3-alpine escript proxy -listen-left 13306 -connect-right 172.19.133.87:3306 -dump no
-sudo docker logs -f mysql_proxy
-sudo docker stop mysql_proxy
+1. git clone git@github.com:panii/simple-socket-proxy.git
+2. cd simple-socket-proxy
+3. sudo docker run --rm --name mysql_proxy -v /etc/timezone:/etc/timezone -v /etc/localtime:/etc/localtime -d --net=host -v "$PWD":/usr/src/myapp -w /usr/src/myapp erlang:23.3-alpine escript proxy -listen-left 13306 -connect-right 172.19.133.87:3306 -dump str
+4. sudo docker logs -f mysql_proxy
+5. sudo docker stop mysql_proxy
 ```
 
 2021年7月26日 update  
@@ -69,3 +68,4 @@ sudo docker run simple-socket-proxy --help
 sudo docker tag simple-socket-proxy:latest panii/simple-socket-proxy:latest
 sudo docker push panii/simple-socket-proxy:latest
 ```
+
