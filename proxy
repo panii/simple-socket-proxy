@@ -285,11 +285,11 @@ wait_left_connected(LeftListenSock, RightListenSock, RightSocket) ->
 
 bind_left_and_right(LeftSocket, RightSocket) ->
     DoDump = get(do_dump),
+    my_echo(io_lib:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket])),
+    connect_count_for_inject_plus(DoDump, LeftSocket),
     Pid = spawn_link(fun() -> loop(LeftSocket, RightSocket, DoDump) end),
     gen_tcp:controlling_process(LeftSocket, Pid),
-    gen_tcp:controlling_process(RightSocket, Pid),
-    my_echo(io_lib:format("~s Success! Now proxy two sockets! ~p <-> ~p ~n", [get_yymmddhhmmssmm_str(), LeftSocket, RightSocket])),
-    connect_count_for_inject_plus(DoDump, LeftSocket).
+    gen_tcp:controlling_process(RightSocket, Pid).
 
 my_echo(Msg) ->
     DoDump = get(do_dump),
@@ -772,4 +772,3 @@ iterate_binary(<<Byte:8, Rest/binary>>, Acc) ->
     %autossh utility,
 
 % ssh localhost -p 2222
-
